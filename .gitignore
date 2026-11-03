@@ -1,0 +1,33 @@
+# Local experiments, recordings and reports
+/Data/
+/Results/
+/work/
+/report/
+/Demo/
+*.wav
+*.m4a
+*.mp4a
+*.aac
+*.mp3
+*.mp4
+
+# Python and frontend dependencies
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+node_modules/
+
+# Local configuration and editor files
+.env
+.env.*
+!.env.example
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+
+# Code/frontend/dist is intentionally included for direct local startup.
