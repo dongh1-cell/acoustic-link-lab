@@ -17,9 +17,11 @@ from audio import ROOT, load_json, read_wav
 from protocol import Config
 from workflow import prepare, import_recording, receive, evaluate
 from summary import summarize
+from batch import create_batch
 
 DATA = ROOT/'Data'
 DIST = ROOT/'Code/frontend/dist'
+RESULTS = ROOT/'Results'
 LOCK = threading.Lock()
 MAX_BODY = 100*1024*1024
 
@@ -35,20 +37,24 @@ def experiment(identifier):
 
 def inventory():
     rows = []
+    plan=load_json(DATA/'formal/plan.json') if (DATA/'formal/plan.json').is_file() else []
+    order={'formal/'+r['folder']:i+1 for i,r in enumerate(plan)}
     for config_file in DATA.rglob('protocol.json'):
         folder = config_file.parent
+        if any(part.startswith('.') for part in folder.relative_to(DATA).parts):continue
         if not folder.resolve().is_relative_to(DATA.resolve()):
             continue
         cfg = load_json(config_file)
         tx = load_json(folder/'transmission.json')
         metrics = load_json(folder/'metrics.json') if (folder/'metrics.json').exists() else None
-        rows.append(dict(id=folder.relative_to(DATA).as_posix(), name=folder.name,
+        identifier=folder.relative_to(DATA).as_posix()
+        rows.append(dict(id=identifier, name=folder.name,number=order.get(identifier),
                          group=folder.relative_to(DATA).parts[0], scheme=cfg['scheme'],
                          symbol_ms=cfg['symbol_ms'], interference=tx['interference'],
                          level=tx['interference_rms_ratio'], duration_s=tx['duration_s'],
                          recorded=(folder/'rx.wav').exists(), decoded=(folder/'decoded.json').exists(),
                          complete=bool(metrics and metrics['complete_rounds'])))
-    return sorted(rows, key=lambda r:(0 if r['group']=='pilot' else 1 if r['group']=='formal' else 2,r['id']))
+    return sorted(rows, key=lambda r:(0 if r['group']=='formal' else 1,r['number'] or 999,r['id']))
 
 
 def details(identifier):
@@ -131,8 +137,11 @@ class Handler(BaseHTTPRequestHandler):
             if url.path=='/api/experiment':return self.json_response(details(arg('id')))
             if url.path=='/api/signal':return self.json_response(signal_data(arg('id'),arg('kind','tx')))
             if url.path=='/api/summary':
-                path=ROOT/'Results/formal/summary.json'
-                return self.json_response(load_json(path) if path.exists() else dict(groups=[],completed_rounds=0,planned_rounds=66))
+                path=RESULTS/'formal/summary.json'
+                plan=load_json(DATA/'formal/plan.json') if (DATA/'formal/plan.json').is_file() else []
+                result=load_json(path) if path.exists() else dict(groups=[],completed_rounds=0)
+                result['planned_rounds']=len(plan)
+                return self.json_response(result)
             if url.path=='/api/file':
                 name=arg('name')
                 if name not in ('tx.wav','rx.wav','send.txt','rec.txt','protocol.json','metrics.json','decoded.json'):
@@ -184,7 +193,11 @@ class Handler(BaseHTTPRequestHandler):
                     result=details(body['id'])
                 elif route=='/api/decode':
                     folder=experiment(body['id']);receive(folder);evaluate(folder);result=details(body['id'])
-                elif route=='/api/summarize':result=summarize(DATA/'formal',ROOT/'Results/formal')
+                elif route=='/api/add-point':
+                    before=load_json(DATA/'formal/plan.json')
+                    plan=create_batch(DATA/'formal',add_point=(body['interference'],float(body['level']),float(body['symbol_ms'])),text_index=int(body.get('text_index',1)))
+                    result=dict(ids=['formal/'+r['folder'] for r in plan[len(before):]],planned_rounds=len(plan))
+                elif route=='/api/summarize':result=summarize(DATA/'formal',RESULTS/'formal')
                 else:raise ValueError('操作不存在')
             finally:LOCK.release()
             self.json_response(result)

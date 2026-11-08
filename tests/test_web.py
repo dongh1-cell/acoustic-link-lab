@@ -14,6 +14,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'Code'))
 import web_app
 from audio import read_wav,write_wav
+from batch import create_batch
 
 
 class WebTests(unittest.TestCase):
@@ -59,6 +60,18 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.request('/api/health',headers={'Host':'example.com'})[0],400)
         self.assertEqual(self.request('/api/create',dict(text='short',scheme='BFSK',symbol_ms=10,interference='quiet',level=0))[0],400)
         self.assertEqual(self.request('/api/file?id=../&name=main.tex')[0],400)
+
+    def test_compact_plan_order_and_add_pair(self):
+        create_batch(web_app.DATA/'formal')
+        code,_,raw=self.request('/api/experiments')
+        rows=[r for r in json.loads(raw) if r['group']=='formal']
+        self.assertEqual([r['number'] for r in rows],list(range(1,15)))
+        self.assertEqual(rows[0]['id'],'formal/quiet_0_T10_R1_BFSK')
+        code,_,raw=self.request('/api/add-point',dict(interference='tone',level=.75,symbol_ms=10,text_index=1))
+        self.assertEqual(code,200,raw);result=json.loads(raw)
+        self.assertEqual(result['planned_rounds'],16);self.assertEqual(len(result['ids']),2)
+        self.assertEqual(self.request('/api/add-point',dict(interference='tone',level=.75,symbol_ms=10,text_index=1))[0],400)
+        code,_,raw=self.request('/api/summary');self.assertEqual(json.loads(raw)['planned_rounds'],16)
 
     def test_full_upload_decode_and_preservation(self):
         r=self.create();folder=web_app.experiment(r['id'])

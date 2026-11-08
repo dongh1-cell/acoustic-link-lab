@@ -19,6 +19,7 @@ def audit(root=ROOT):
               'Code/audio.py','Code/fec.py','Code/batch.py','Code/audit.py','Code/frontend/package.json','Code/frontend/package-lock.json',
               'Code/frontend/index.html','Code/frontend/vite.config.js','Code/frontend/src/comparison.js',
               'Code/frontend/src/main.jsx','Code/frontend/src/style.css','Code/frontend/dist/index.html']
+    required.extend(['Code/initialize.py','Code/frontend/src/charts.jsx'])
     pending.extend('缺少复现文件：'+name for name in required if not (root/name).is_file())
     index=root/'Code/frontend/dist/index.html'
     if index.is_file():

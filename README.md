@@ -26,7 +26,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe Code/web_app.py --open
 ```
 
-安装依赖后，也可双击 `启动界面.cmd`。初次运行会生成2轮预实验、66轮正式测试的发送文件；再次运行沿用现有实验。
+安装依赖后，也可双击 `启动界面.cmd`。初次运行生成14段正式测试的发送音频；再次运行沿用现有实验。尚未录音的旧计划可运行 `python Code/initialize.py --compact`，旧发送文件先备份到work。
 
 macOS / Linux：
 
@@ -41,14 +41,37 @@ python3 -m venv .venv
 
 ## 录音操作
 
-1. 选择“预实验”的BFSK或4FSK，固定电脑和手机的位置，记录距离与系统音量。
+1. 从左侧清单的01、02开始，固定电脑和手机的位置，记录距离与系统音量。这两段同时用于设备检查和正式测试。
 2. 手机录音机提前2秒开始，电脑通过扬声器完整播放当前实验的tx.wav。
 3. 播放结束后继续录制2秒，保存手机原始录音。
-4. 在对应实验中导入录音，填写实际条件，查看自动解码结果。
+4. 按页面编号命名录音，如01_BFSK、02_4FSK。在对应实验中选择文件，填写实际条件，点击“导入并解码”。
 
 预设58字符文本、10ms符号时长下，BFSK播放10.48秒，新4FSK播放8.34秒。界面默认记录本实验的魔霸新锐2023和vivo X200s；使用其他设备时，可通过命令行导入并在conditions.json中填写实际设备。
 
 首尾静音和全部数据包保存在同一轮录音中。程序保存原文件，并将完整首声道转换为rx.wav。默认每个目录保存一次采集，重复试验创建新目录。
+
+## 精简录音计划
+
+首轮14段，按页面01～14依次录制。每组BFSK和4FSK使用同一段文本和同一条件。
+
+| 编号 | 条件 | 文本 | BFSK / 4FSK播放时长 |
+| --- | --- | --- | --- |
+| 01、02 | 安静，10 ms | A | 10.48 / 8.34 s |
+| 03、04 | 安静，20 ms | B | 18.64 / 14.38 s |
+| 05、06 | 安静，5 ms | C | 6.32 / 5.21 s |
+| 07、08 | 噪声0.5，10 ms | B | 10.32 / 8.19 s |
+| 09、10 | 噪声1.0，10 ms | C | 10.64 / 8.42 s |
+| 11、12 | 带内干扰0.5，10 ms | B | 10.32 / 8.19 s |
+| 13、14 | 带内干扰1.0，10 ms | C | 10.64 / 8.42 s |
+
+0.5、1.0表示播放端干扰RMS与信号名义RMS的比值，干扰已混入对应音频。带内干扰为2 kHz单音。
+01、02同时作为噪声、带内干扰曲线的零点；每条曲线包含A、B、C三段不同文本。14份独立录音只计14轮，共用基线保持相同文件来源。每点每方案初始样本量为1，统计表同时保留分子、分母和轮数。
+
+先导入01、02检查实际设备，再完成其余12段。整轮固定设备、距离和系统音量。若需要调整设备位置或音量，另建一套同条件清单并保留已录数据。
+
+曲线达到成功到明显下降的范围后，在转折不清楚的位置补一个中间点；最高干扰仍全成功时继续增强干扰。速率测试先覆盖允许范围的20、10、5 ms，根据吞吐变化再补8或15 ms。同一条件出现异常波动时用另一段文本复测。网页“结果汇总 → 添加补测点”每次新增2段，也可用命令行的`--add-point`和`--text-index 1|2|3`。最终数量由真实曲线决定。
+
+界面保留“录音实验”和“结果汇总”两页。文本输入与方案设置在“自定义发送”中，波形/频谱、逐包同步校验、原文/恢复文本和四项指标均可查看。
 
 ## 目录与数据
 
@@ -56,7 +79,7 @@ python3 -m venv .venv
 Code/                 调制、纠错、接收、统计和实验管理
   frontend/src/       React源码
   frontend/dist/      可直接运行的网页资源
-tests/                30项Python测试及前端曲线分组检查
+tests/                35项Python测试及前端曲线分组检查
 requirements.txt      Python依赖
 启动界面.cmd           Windows启动入口
 ```
@@ -65,7 +88,6 @@ requirements.txt      Python依赖
 
 | 目录 | 内容 |
 | --- | --- |
-| Data/pilot | 两轮预实验 |
 | Data/formal | 正式测试清单及逐轮音频、文本、参数 |
 | Data/custom | 网页创建的自定义实验 |
 | Results/formal | 逐轮指标、汇总表及实测曲线 |
@@ -96,16 +118,16 @@ requirements.txt      Python依赖
 
 ```bash
 # 独立接收：仅需录音和公开配置
-python Code/receiver.py --input Data/pilot/quiet_0_T10_R1_4FSK/rx.wav --protocol Data/pilot/quiet_0_T10_R1_4FSK/protocol.json --output Results/standalone.json
+python Code/receiver.py --input Data/formal/quiet_0_T10_R1_4FSK/rx.wav --protocol Data/formal/quiet_0_T10_R1_4FSK/protocol.json --output Results/standalone.json
 
 # 按实验目录重新解码、评测
-python Code/workflow.py decode --folder Data/pilot/quiet_0_T10_R1_4FSK
-python Code/workflow.py evaluate --folder Data/pilot/quiet_0_T10_R1_4FSK
+python Code/workflow.py decode --folder Data/formal/quiet_0_T10_R1_4FSK
+python Code/workflow.py evaluate --folder Data/formal/quiet_0_T10_R1_4FSK
 
 # 导入录音，conditions.json记录实际条件
-python Code/workflow.py import --folder Data/pilot/quiet_0_T10_R1_4FSK --source phone.m4a --conditions conditions.json
+python Code/workflow.py import --folder Data/formal/quiet_0_T10_R1_4FSK --source phone.m4a --conditions conditions.json
 
-# 汇总正式实验；在性能转折处增加一组配对测试
+# 汇总正式实验；在性能转折处增加一对录音
 python Code/summary.py
 python Code/batch.py --output Data/formal --add-point noise 0.75 10
 ```
@@ -139,6 +161,6 @@ python -m unittest discover -s tests -p "test_*.py" -v
 node tests/test_chart.mjs
 ```
 
-软件验证包含30项测试、100组收发参数组合，覆盖纠错、交织、随机起点、缺包、重复包、44.1kHz录音、时钟偏差和HTTP导入流程。测试使用软件生成的波形。
+软件验证包含35项测试、100组收发参数组合，覆盖纠错、交织、随机起点、缺包、重复包、44.1kHz录音、时钟偏差和HTTP导入流程。测试使用软件生成的波形。
 
 当前软件实现与发送文件准备已完成。真实录音、实测曲线、课程报告的实验结论和演示视频随采集进度补充。`Code/audit.py`用于课程工作目录中的最终交付检查，检查范围包含本仓库以外单独保存的报告与视频。

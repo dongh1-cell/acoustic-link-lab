@@ -70,13 +70,22 @@ def summarize(data, output):
                 or any(transmissions[a['id']].get(k)!=transmissions[b['id']].get(k) for k in tx_keys)
                 or (a['interference']!='quiet' and configs[a['id']]['amplitude']!=configs[b['id']]['amplitude'])
                 or a['text']!=b['text']):mismatches.append([a['id'],b['id']])
+    # Shared baselines and the sweep points use the same physical setup.
+    if completed:
+        reference=completed[0]['id']
+        keys=('playback_device','recording_device','distance_m','system_volume','environment')
+        for row in completed[1:]:
+            identifier=row['id']
+            if any(conditions[reference].get(k)!=conditions[identifier].get(k) for k in keys):
+                pair=[reference,identifier]
+                if pair not in mismatches:mismatches.append(pair)
     groups=[dict(scheme=k[0],interference=k[1],level=k[2],symbol_ms=k[3],**aggregate(v)) for k,v in buckets.items()]
     for scheme in ('BFSK','4FSK'):
         codes={c.get('coding','none') for c in configs.values() if c['scheme']==scheme}
         if len(codes)>1:raise ValueError('同一正式测试清单请使用一致的纠错配置：'+scheme)
     status=dict(planned_rounds=len(plan),completed_rounds=len(completed),pending=pending,
                 condition_mismatches=mismatches,invalid_rounds=invalid,plan_issues=inspect_plan(plan),groups=groups,
-                note='曲线来自已完成的真实录音；每点目标3轮。转折处加密并扩展到性能下降区。')
+                note='首轮每点每方案1次录音；10 ms安静点共用于两条干扰曲线。每条曲线含3段不同文本，样本量按实际录音计。根据实测在转折处补点。')
     save_json(output/'summary.json',status)
     if completed:
         with (output/'per_round.csv').open('w',encoding='utf-8-sig',newline='') as f:
