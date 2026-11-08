@@ -1,6 +1,7 @@
 """Regression checks for server identity and partially generated experiments."""
 import io
 import json
+from http.server import ThreadingHTTPServer as StandardHTTPServer
 from pathlib import Path
 import sys
 import tempfile
@@ -17,6 +18,20 @@ from batch import create_batch
 
 
 class WebAuditTests(unittest.TestCase):
+    def test_listening_port_is_exclusive_with_current_and_legacy_servers(self):
+        for first_type,second_type in (
+            (web_app.ThreadingHTTPServer,web_app.ThreadingHTTPServer),
+            (web_app.ThreadingHTTPServer,StandardHTTPServer),
+            (StandardHTTPServer,web_app.ThreadingHTTPServer),
+        ):
+            with self.subTest(first=first_type,second=second_type):
+                first=first_type(('127.0.0.1',0),web_app.Handler)
+                try:
+                    with self.assertRaises(OSError):
+                        second=second_type(first.server_address,web_app.Handler)
+                        second.server_close()
+                finally:first.server_close()
+
     def test_inventory_keeps_plan_slots_when_trial_files_are_damaged(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'work',prefix='inventory_audit_') as temp,patch.object(web_app,'DATA',Path(temp)/'Data'):
             plan=create_batch(web_app.DATA/'formal')

@@ -6,7 +6,8 @@ import math
 import mimetypes
 from pathlib import Path
 from datetime import datetime
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer as _ThreadingHTTPServer
+import socket
 import tempfile
 import threading
 from urllib.parse import urlparse, parse_qs
@@ -24,6 +25,17 @@ DIST = ROOT/'Code/frontend/dist'
 RESULTS = ROOT/'Results'
 LOCK = threading.Lock()
 MAX_BODY = 100*1024*1024
+
+
+class ThreadingHTTPServer(_ThreadingHTTPServer):
+    """Keep one local workspace server per listening address on every platform."""
+    allow_reuse_address = False
+    allow_reuse_port = False
+
+    def server_bind(self):
+        if hasattr(socket,'SO_EXCLUSIVEADDRUSE'):
+            self.socket.setsockopt(socket.SOL_SOCKET,socket.SO_EXCLUSIVEADDRUSE,1)
+        super().server_bind()
 
 
 def experiment(identifier):
