@@ -67,7 +67,12 @@ def decode(x, fs, cfg):
                     continue
                 # Equalize carrier response using known preamble symbols only.
                 gains = np.array([np.median(e[k, centers[pre==k]]) for k in range(len(cfg.frequencies))])
-                gains = np.maximum(gains, max(gains.max()*.12, 1e-15))
+                # Other known preamble symbols expose this carrier's interference
+                # and window-leakage background. A per-carrier floor keeps its
+                # median off-symbol response <= 1/4 after normalization while
+                # allowing large, frequency-dependent speaker/microphone losses.
+                background = np.array([np.median(e[k, centers[pre!=k]]) for k in range(len(cfg.frequencies))])
+                gains = np.maximum(gains, np.maximum(4*background, 1e-15))
 
                 def read(count,skip=0):
                     at = np.round(start+(len(pre)+skip+np.arange(count)+.5)*step).astype(int)
