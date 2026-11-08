@@ -129,8 +129,8 @@ def transmit(text, cfg, interference='quiet', level=0.0, seed=2026):
     clean = np.concatenate(parts)
     if len(clean)/cfg.sample_rate > 30:
         raise ValueError('单轮发送时长超过30秒，请缩短符号时长')
-    if interference not in ('quiet', 'noise', 'tone') or not 0 <= level <= 2:
-        raise ValueError('干扰类型为quiet/noise/tone；RMS比例范围0～2')
+    if interference not in ('quiet', 'noise', 'tone') or not 0 <= level <= 20:
+        raise ValueError('干扰类型为quiet/noise/tone；RMS比例范围0～20')
     if interference == 'quiet' and level != 0:
         raise ValueError('安静测试的干扰比例应为0')
     t = np.arange(len(clean))/cfg.sample_rate

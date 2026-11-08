@@ -36,25 +36,52 @@ def experiment(identifier):
 
 
 def inventory():
-    rows = []
+    def read_record(path):
+        try:return load_json(path)
+        except (OSError,ValueError) as exc:raise ValueError(path.name+'：'+str(exc)) from exc
     plan=load_json(DATA/'formal/plan.json') if (DATA/'formal/plan.json').is_file() else []
-    order={'formal/'+r['folder']:i+1 for i,r in enumerate(plan)}
+    planned={'formal/'+r['folder']:(i+1,r) for i,r in enumerate(plan)}
+    identifiers=set(planned)
     for config_file in DATA.rglob('protocol.json'):
-        folder = config_file.parent
-        if any(part.startswith('.') for part in folder.relative_to(DATA).parts):continue
-        if not folder.resolve().is_relative_to(DATA.resolve()):
-            continue
-        cfg = load_json(config_file)
-        tx = load_json(folder/'transmission.json')
-        metrics = load_json(folder/'metrics.json') if (folder/'metrics.json').exists() else None
-        identifier=folder.relative_to(DATA).as_posix()
-        rows.append(dict(id=identifier, name=folder.name,number=order.get(identifier),
-                         group=folder.relative_to(DATA).parts[0], scheme=cfg['scheme'],
-                         symbol_ms=cfg['symbol_ms'], interference=tx['interference'],
-                         level=tx['interference_rms_ratio'], duration_s=tx['duration_s'],
-                         recorded=(folder/'rx.wav').exists(), decoded=(folder/'decoded.json').exists(),
-                         complete=bool(metrics and metrics['complete_rounds'])))
-    return sorted(rows, key=lambda r:(0 if r['group']=='formal' else 1,r['number'] or 999,r['id']))
+        relative=config_file.parent.relative_to(DATA)
+        if not any(part.startswith('.') for part in relative.parts):identifiers.add(relative.as_posix())
+    rows=[]
+    for identifier in identifiers:
+        number,entry=planned.get(identifier,(None,{}))
+        folder=DATA/identifier
+        row=dict(id=identifier,name=folder.name,number=number,group=Path(identifier).parts[0],
+                 scheme=entry.get('scheme','未知方案'),symbol_ms=entry.get('symbol_ms'),
+                 interference=entry.get('interference','quiet'),level=entry.get('level',0),
+                 duration_s=None,recorded=False,decoded=False,complete=False)
+        try:
+            if not folder.resolve().is_relative_to(DATA.resolve()):raise ValueError('实验路径超出数据目录')
+            for name in ('protocol.json','transmission.json','send.txt','tx.wav'):
+                if not (folder/name).is_file():raise ValueError('缺少文件：'+name)
+            cfg=read_record(folder/'protocol.json');Config(**cfg).validate()
+            tx=read_record(folder/'transmission.json')
+            duration=float(tx['duration_s']);level=float(tx['interference_rms_ratio'])
+            if not math.isfinite(duration) or duration<=0:
+                raise ValueError('transmission.json 中的发送时长无效')
+            if tx['interference'] not in ('quiet','noise','tone') or not math.isfinite(level):
+                raise ValueError('transmission.json 中的干扰设置无效')
+            row.update(scheme=cfg['scheme'],symbol_ms=cfg['symbol_ms'],interference=tx['interference'],
+                       level=level,duration_s=duration)
+            optional={}
+            for name in ('metrics','decoded','conditions','recording'):
+                if (folder/(name+'.json')).is_file():
+                    value=read_record(folder/(name+'.json'))
+                    if not isinstance(value,dict):raise ValueError(name+'.json 格式无效')
+                    optional[name]=value
+            recorded=(folder/'rx.wav').is_file();decoded='decoded' in optional
+            if (recorded or decoded) and 'metrics' not in optional:raise ValueError('缺少文件：metrics.json')
+            if decoded and not isinstance(optional['decoded'].get('packets'),list):
+                raise ValueError('decoded.json 中的逐包结果无效')
+            metrics=optional.get('metrics')
+            row.update(recorded=recorded,decoded=decoded,complete=bool(metrics and metrics['complete_rounds']))
+        except (OSError,ValueError,TypeError,KeyError,AttributeError) as exc:
+            row['error']='文件待修复：'+str(exc)
+        rows.append(row)
+    return sorted(rows,key=lambda r:(0 if r['group']=='formal' else 1,r['number'] or 999,r['id']))
 
 
 def details(identifier):
@@ -132,7 +159,7 @@ class Handler(BaseHTTPRequestHandler):
             self.trusted_request()
             url=urlparse(self.path);query=parse_qs(url.query)
             arg=lambda k,default='':query.get(k,[default])[0]
-            if url.path=='/api/health':return self.json_response(dict(app='acoustic-lab',version=1))
+            if url.path=='/api/health':return self.json_response(dict(app='acoustic-lab',version=2,project=str(ROOT.resolve())))
             if url.path=='/api/experiments':return self.json_response(inventory())
             if url.path=='/api/experiment':return self.json_response(details(arg('id')))
             if url.path=='/api/signal':return self.json_response(signal_data(arg('id'),arg('kind','tx')))
@@ -175,7 +202,14 @@ class Handler(BaseHTTPRequestHandler):
                 if route=='/api/create':
                     cfg=Config(scheme=body['scheme'],symbol_ms=float(body['symbol_ms']),coding='hamming15_11' if body['scheme']=='4FSK' else 'none')
                     identifier='custom/'+datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'_'+cfg.scheme
-                    prepare(DATA/identifier,body['text'],cfg,body['interference'],float(body['level']))
+                    DATA.mkdir(parents=True,exist_ok=True)
+                    with tempfile.TemporaryDirectory(prefix='.create_',dir=DATA) as temp:
+                        source=Path(temp)/'trial'
+                        prepare(source,body['text'],cfg,body['interference'],float(body['level']))
+                        target=(DATA/identifier).resolve()
+                        if not target.is_relative_to(DATA.resolve()):raise ValueError('实验目录路径无效')
+                        target.parent.mkdir(exist_ok=True)
+                        source.replace(target)
                     result=details(identifier)
                 elif route=='/api/import':
                     folder=experiment(body['id']);conditions=body['conditions']
@@ -217,6 +251,8 @@ def main():
         try:
             with urlopen(url+'/api/health',timeout=2) as response:existing=json.load(response)
             if existing.get('app')=='acoustic-lab':
+                if not existing.get('project') or Path(existing['project']).resolve()!=ROOT.resolve():
+                    raise SystemExit('该端口正在运行另一项目或旧版本，请关闭该服务后重启当前项目，或使用 --port 指定其他端口')
                 if args.open:webbrowser.open(url)
                 print('实验工作台已运行：'+url);return
         except Exception:pass

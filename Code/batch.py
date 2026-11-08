@@ -6,7 +6,7 @@ import shutil
 import os
 from pathlib import Path
 from audio import ROOT, save_json, load_json
-from protocol import Config
+from protocol import Config, transmit
 from workflow import prepare
 
 TEXTS = [
@@ -38,16 +38,48 @@ def create_batch(root, pilot=False, add_point=None, text_index=1):
             pending.append(dict(id=name,scheme=scheme,interference=kind,level=level,
                              symbol_ms=ms,round=i,text=TEXTS[i-1],folder=name))
     root.mkdir(parents=True,exist_ok=True)
+    # A supplemental pair shares one playback amplitude. Keep the selected
+    # signal/interference RMS ratio while reserving headroom for strong noise.
+    amplitudes={}
+    for kind,level,ms,i in points:
+        point=(kind,level,ms)
+        existing=[r for r in plan if (r['interference'],r['level'],r['symbol_ms'])==point]
+        if existing:
+            values={Config(**load_json(root/r['folder']/'protocol.json')).amplitude for r in existing}
+            if len(values)!=1:raise ValueError('该测试点已有不同信号幅度，请先核对配置')
+            amplitudes[point]=values.pop()
+        elif add_point:
+            peaks=[]
+            for scheme in ('BFSK','4FSK'):
+                cfg=Config(scheme=scheme,symbol_ms=ms,amplitude=.005,
+                           coding='hamming15_11' if scheme=='4FSK' else 'none')
+                _,metadata=transmit(TEXTS[i-1],cfg,kind,level,2026+i)
+                peaks.append(metadata['peak'])
+            amplitudes[point]=min(.22,.95*.005/max(peaks))
+        else:amplitudes[point]=.22
     with tempfile.TemporaryDirectory(prefix='.plan_stage_',dir=root) as temporary:
         stage=Path(temporary)
         for row in pending:
-            prepare(stage/row['folder'],row['text'],Config(scheme=row['scheme'],symbol_ms=row['symbol_ms'],coding='hamming15_11' if row['scheme']=='4FSK' else 'none'),
+            amplitude=amplitudes[(row['interference'],row['level'],row['symbol_ms'])]
+            try:
+                prepare(stage/row['folder'],row['text'],Config(scheme=row['scheme'],symbol_ms=row['symbol_ms'],amplitude=amplitude,coding='hamming15_11' if row['scheme']=='4FSK' else 'none'),
                     row['interference'],row['level'],2026+row['round'])
+            except ValueError as exc:
+                if '峰值' in str(exc):raise ValueError('该点沿用已有信号幅度时峰值超限，请另设测试配置并重新采集对应对照') from exc
+                raise
+            txfile=stage/row['folder']/'transmission.json'
+            metadata=load_json(txfile)
+            metadata.update(signal_amplitude=amplitude,nominal_amplitude=.22,pair_gain=amplitude/.22)
+            save_json(txfile,metadata)
         plan.extend(pending)
         save_json(stage/'plan.json',plan)
+        marks={}
+        if (root/'录音清单.csv').is_file():
+            with (root/'录音清单.csv').open(encoding='utf-8-sig',newline='') as f:
+                marks={r['id']:r.get('recording_done','') for r in csv.DictReader(f)}
         with (stage/'录音清单.csv').open('w',encoding='utf-8-sig',newline='') as f:
             w=csv.DictWriter(f,fieldnames=list(plan[0])+['recording_done'])
-            w.writeheader();w.writerows(dict(p,recording_done='') for p in plan)
+            w.writeheader();w.writerows(dict(p,recording_done=marks.get(p['id'],'')) for p in plan)
         metadata=('录音清单.csv','plan.json');moved=[];replaced=[]
         for name in metadata:
             if (root/name).exists():shutil.copy2(root/name,stage/(name+'.previous'))

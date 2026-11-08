@@ -21,7 +21,7 @@ class App:
         self.scheme=tk.StringVar(value='BFSK');self.ms=tk.StringVar(value='10')
         self.kind=tk.StringVar(value='quiet');self.level=tk.StringVar(value='0')
         self.distance=tk.StringVar();self.volume=tk.StringVar();self.environment=tk.StringVar(value='安静宿舍')
-        self.status=tk.StringVar(value='先打开预实验目录，或输入40～80个ASCII字符生成新实验。')
+        self.status=tk.StringVar(value='先打开 Data/formal 中的实验目录，或输入40～80个ASCII字符生成新实验。')
         self.location=tk.StringVar(value='尚未选择实验目录')
         self.stats=tk.StringVar(value='统计将在导入真实录音并解码后显示。')
         outer=ttk.Frame(root,padding=12);outer.pack(fill='both',expand=True)
@@ -115,7 +115,7 @@ class App:
         folder=Path(parent)/(datetime.now().strftime('%Y%m%d_%H%M%S_%f')+'_'+self.scheme.get())
         try:
             cfg=Config(scheme=self.scheme.get(),symbol_ms=float(self.ms.get()),coding='hamming15_11' if self.scheme.get()=='4FSK' else 'none')
-            prepare(folder,self.text.get('1.0','end-1c'),cfg,self.kind.get(),float(self.level.get()))
+            prepare(folder,self.text.get('1.0','end-1c'),cfg,self.kind.get(),0. if self.kind.get()=='quiet' else float(self.level.get()))
             self.load_folder(folder);self.status.set('发送文件已生成。手机开始录音后再点击播放，播放结束后继续录制2秒。')
         except Exception as exc:messagebox.showerror('生成失败',str(exc))
 

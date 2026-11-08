@@ -103,8 +103,26 @@ def import_recording(folder, source, conditions):
         save_json(stage/'decoded.json',result)
         save_json(stage/'metrics.json',report)
         (stage/'rec.txt').write_text(result['recovered_text'] if result['complete'] else result['display_text'],encoding='utf-8')
-        for path in stage.iterdir():
-            path.replace(folder/path.name)
+        # Publish the recording manifest last: summaries use it as the commit marker.
+        outputs=sorted(stage.iterdir(),key=lambda path:path.name=='recording.json')
+        previous=stage/'previous'
+        previous.mkdir()
+        for path in outputs:
+            target=folder/path.name
+            if target.exists():shutil.copy2(target,previous/path.name)
+        published=[]
+        try:
+            for path in outputs:
+                path.replace(folder/path.name)
+                published.append(path)
+        except Exception:
+            # Restore the pre-import state if publication stops midway.
+            # All paths belong to this trial and its own temporary directory.
+            for path in reversed(published):
+                target=folder/path.name
+                target.replace(path)
+                if (previous/path.name).exists():(previous/path.name).replace(target)
+            raise
     return result, report
 
 

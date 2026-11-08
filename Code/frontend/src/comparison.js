@@ -9,3 +9,17 @@ export function comparisonSeries(rows,kind){
       .sort((a,b)=>kind==='quiet'?b.symbol_ms-a.symbol_ms:a.level-b.level)
   }))).filter(series=>series.rows.length);
 }
+
+// An unavailable BER has zero comparable payload bits. Preserve a visible gap
+// instead of connecting the measurements on either side of that point.
+export function metricSegments(rows,metric){
+  const segments=[];let current=[];
+  for(const row of rows){
+    if(row[metric]==null||!Number.isFinite(row[metric])){
+      if(current.length)segments.push(current);
+      current=[];
+    }else current.push(row);
+  }
+  if(current.length)segments.push(current);
+  return segments;
+}

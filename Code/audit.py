@@ -9,9 +9,13 @@ from summary import summarize
 
 def audit(root=ROOT):
     pending=[]
-    status=summarize(root/'Data/formal',root/'Results/formal')
+    try:status=summarize(root/'Data/formal',root/'Results/formal')
+    except (OSError,ValueError,KeyError,TypeError) as exc:
+        status=dict(completed_rounds=0,planned_rounds=0,pending=[],condition_mismatches=[],
+                    invalid_rounds=[],plan_issues=['实验清单读取失败：'+str(exc)])
     if status['pending']:pending.append(f"正式录音尚缺{len(status['pending'])}轮")
     if status['condition_mismatches']:pending.append('部分配对实验的实际采集条件不同')
+    pending.extend('分组检查：'+message for message in status.get('group_issues',[]))
     pending.extend('测试覆盖：'+message for message in status['plan_issues'])
     pending.extend('数据检查：'+row['id']+' '+row['reason'] for row in status['invalid_rounds'])
     required=['README.md','requirements.txt','启动界面.cmd','Code/protocol.py','Code/receiver.py',
@@ -34,9 +38,14 @@ def audit(root=ROOT):
     if not review.exists():
         pending.append('待结合实测审核性能改善、极限曲线和组内分工')
     else:
-        info=load_json(review)
-        for field in ['measured_improvement','limit_curves_reviewed','two_members_and_roles','report_final']:
-            if info.get(field) is not True:pending.append('报告检查未完成：'+field)
+        try:
+            info=load_json(review)
+            if not isinstance(info,dict):raise ValueError('内容应为审核项目对象')
+        except (OSError,ValueError,TypeError) as exc:
+            pending.append('报告检查文件review.json待修复：'+str(exc))
+        else:
+            for field in ['measured_improvement','limit_curves_reviewed','two_members_and_roles','report_final']:
+                if info.get(field) is not True:pending.append('报告检查未完成：'+field)
     video=root/'Demo/demo.mp4'
     duration=None
     if not video.is_file():pending.append('待录制两方案真实运行演示视频')
